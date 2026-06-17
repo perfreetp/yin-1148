@@ -8,13 +8,39 @@ import { STAFF } from '@/constants';
 import type { ExceptionType } from '@/types';
 import { formatDateTime } from '@/utils/dateUtils';
 
+const getStatusText = (status: string): string => {
+  const map: Record<string, string> = {
+    in_use: '使用中',
+    cleaning: '清洗中',
+    sterilizing: '灭菌中',
+    sterilized: '无菌库存',
+    expired: '已过期',
+    exception: '异常待处理',
+    borrowed: '已借出',
+  };
+  return map[status] || status;
+};
+
 const ExceptionsPage = () => {
   const navigate = useNavigate();
-  const { exceptionRecords, instrumentPacks, sterilizationBatches, addExceptionRecord, handleException } = useAppStore();
+  const {
+    exceptionRecords,
+    instrumentPacks,
+    sterilizationBatches,
+    addExceptionRecord,
+    handleException,
+    recallBatch,
+    reSterilizePack,
+  } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHandleModalOpen, setIsHandleModalOpen] = useState(false);
   const [selectedExceptionId, setSelectedExceptionId] = useState<string | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [isRecallModalOpen, setIsRecallModalOpen] = useState(false);
+  const [isReSterilizeModalOpen, setIsReSterilizeModalOpen] = useState(false);
+  const [reSterilizePackId, setReSterilizePackId] = useState<string | null>(null);
+  const [recallOperator, setRecallOperator] = useState(STAFF[0]);
+  const [reSterilizeOperator, setReSterilizeOperator] = useState(STAFF[0]);
 
   const [formData, setFormData] = useState({
     packId: '',
@@ -65,6 +91,33 @@ const ExceptionsPage = () => {
   const openHandleModal = (id: string) => {
     setSelectedExceptionId(id);
     setIsHandleModalOpen(true);
+  };
+
+  const handleRecallBatch = () => {
+    if (!selectedExceptionId || !recallOperator) return;
+    const exception = exceptionRecords.find((e) => e.id === selectedExceptionId);
+    if (exception?.batchId) {
+      recallBatch(exception.batchId, recallOperator);
+    }
+    setIsRecallModalOpen(false);
+  };
+
+  const handleReSterilize = () => {
+    if (!reSterilizePackId || !reSterilizeOperator) return;
+    reSterilizePack(reSterilizePackId, reSterilizeOperator);
+    setIsReSterilizeModalOpen(false);
+    setReSterilizePackId(null);
+  };
+
+  const openRecallModal = () => {
+    setRecallOperator(STAFF[0]);
+    setIsRecallModalOpen(true);
+  };
+
+  const openReSterilizeModal = (packId: string) => {
+    setReSterilizePackId(packId);
+    setReSterilizeOperator(STAFF[0]);
+    setIsReSterilizeModalOpen(true);
   };
 
   const viewDetail = (id: string) => {
@@ -484,7 +537,7 @@ const ExceptionsPage = () => {
             {selectedException.batchId && (
               <>
                 <div className="bg-warning-50 border border-warning-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-3">
                     <div>
                       <p className="text-sm text-warning-700 mb-1">关联灭菌批次</p>
                       <p className="font-semibold text-warning-900">
@@ -499,6 +552,13 @@ const ExceptionsPage = () => {
                       } 个器械包
                     </div>
                   </div>
+                  <button
+                    onClick={openRecallModal}
+                    className="w-full py-2.5 bg-danger-600 text-white rounded-lg hover:bg-danger-700 transition-colors font-medium text-sm flex items-center justify-center gap-2"
+                  >
+                    <AlertTriangle size={16} />
+                    一键召回整批次
+                  </button>
                 </div>
 
                 <div>
@@ -507,31 +567,47 @@ const ExceptionsPage = () => {
                     受影响器械包（院感排查范围）
                   </h4>
                   <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="grid grid-cols-5 gap-2 px-3 py-2 bg-gray-100 text-xs font-medium text-gray-600">
+                      <div>器械包</div>
+                      <div>当前环节</div>
+                      <div>状态</div>
+                      <div className="col-span-2 text-right">操作</div>
+                    </div>
                     <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
                       {(() => {
                         const batch = sterilizationBatches.find(b => b.id === selectedException.batchId);
                         const affectedPacks = batch ? instrumentPacks.filter(p => batch.packIds.includes(p.id)) : [];
                         if (affectedPacks.length === 0) {
                           return (
-                            <div className="py-6 text-center text-gray-400 text-sm">暂无器械包</div>
+                            <div className="py-6 text-center text-gray-400 text-sm col-span-5">暂无器械包</div>
                           );
                         }
                         return affectedPacks.map(pack => (
                           <div
                             key={pack.id}
-                            className="flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+                            className="grid grid-cols-5 gap-2 items-center px-3 py-3 hover:bg-gray-50 transition-colors"
                           >
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 bg-primary-50 rounded-lg flex items-center justify-center">
-                                <Package size={16} className="text-primary-600" />
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 bg-primary-50 rounded-lg flex items-center justify-center">
+                                <Package size={14} className="text-primary-600" />
                               </div>
                               <div>
                                 <p className="font-medium text-gray-900 text-sm">{pack.name}</p>
                                 <p className="text-xs text-gray-500">{pack.code}</p>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="text-sm text-gray-700">{getStatusText(pack.status)}</div>
+                            <div>
                               <StatusBadge type="instrument" status={pack.status} />
+                            </div>
+                            <div className="col-span-2 flex justify-end gap-1">
+                              <button
+                                onClick={() => openReSterilizeModal(pack.id)}
+                                className="px-2.5 py-1.5 text-xs bg-primary-50 text-primary-600 hover:bg-primary-100 rounded-md transition-colors"
+                                title="创建新批次重新灭菌"
+                              >
+                                重新灭菌
+                              </button>
                               <button
                                 onClick={() => {
                                   navigate('/trace');
@@ -588,6 +664,108 @@ const ExceptionsPage = () => {
             )}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={isRecallModalOpen}
+        onClose={() => setIsRecallModalOpen(false)}
+        title="确认召回批次"
+        size="md"
+        footer={
+          <>
+            <button
+              onClick={() => setIsRecallModalOpen(false)}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleRecallBatch}
+              disabled={!recallOperator}
+              className="px-4 py-2 bg-danger-600 text-white rounded-lg hover:bg-danger-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              确认召回
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="bg-danger-50 border border-danger-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 text-danger-700 font-medium mb-2">
+            <AlertTriangle size={20} />
+            该操作不可撤销
+          </div>
+          <p className="text-sm text-danger-600">
+            召回后批次内所有器械包，将全部标记为异常，并为每个器械包自动生成异常记录，状态变为：灭菌不合格，需重新处理
+          </p>
+        </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">操作人 *</label>
+            <select
+              value={recallOperator}
+              onChange={(e) => setRecallOperator(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-danger-500 bg-white"
+            >
+              {STAFF.map((staff) => (
+                <option key={staff} value={staff}>
+                  {staff}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={isReSterilizeModalOpen}
+        onClose={() => { setIsReSterilizeModalOpen(false); setReSterilizePackId(null); }}
+        title="重新灭菌"
+        size="md"
+        footer={
+          <>
+            <button
+              onClick={() => { setIsReSterilizeModalOpen(false); setReSterilizePackId(null); }}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleReSterilize}
+              disabled={!reSterilizeOperator}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              确认创建
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="bg-primary-50 border border-primary-200 rounded-xl p-4">
+          <p className="text-sm text-primary-700">
+            将为该器械包创建一个新的灭菌批次，并直接开始灭菌程序，灭菌参数：134°C / 210kPa / 180s
+          </p>
+        </div>
+          <div>
+            <p className="text-sm text-gray-500 mb-2">器械包</p>
+            <p className="font-medium text-gray-900">
+              {reSterilizePackId ? instrumentPacks.find(p => p.id === reSterilizePackId)?.name || '' : ''}
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">第一操作人 *</label>
+            <select
+              value={reSterilizeOperator}
+              onChange={(e) => setReSterilizeOperator(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+            >
+              {STAFF.map((staff) => (
+                <option key={staff} value={staff}>
+                  {staff}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
       </Modal>
     </div>
   );

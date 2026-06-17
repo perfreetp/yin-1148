@@ -46,6 +46,8 @@ interface AppState {
   startSterilization: (batchId: string, operator1: string) => void;
   completeSterilization: (batchId: string) => void;
   releaseBatch: (batchId: string, operator2: string) => void;
+  recallBatch: (batchId: string, operator: string) => void;
+  reSterilizePack: (packId: string, operator: string) => void;
 
   addExceptionRecord: (record: Omit<ExceptionRecord, 'id' | 'reportedAt' | 'status'>) => void;
   handleException: (id: string, handler: string, handleResult: string) => void;
@@ -277,6 +279,39 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       });
     }
+  },
+
+  recallBatch: (batchId, operator) => {
+    const batch = get().sterilizationBatches.find((b) => b.id === batchId);
+    if (!batch) return;
+
+    const now = new Date().toISOString();
+    const newExceptionRecords = [...get().exceptionRecords];
+
+    batch.packIds.forEach((packId) => {
+      newExceptionRecords.push({
+        id: generateId(),
+        packId,
+        batchId,
+        type: 'unqualified',
+        description: `批次 ${batch.batchNo} 被召回，需重新处理`,
+        reportedBy: operator,
+        reportedAt: now,
+        status: 'pending',
+      });
+
+      get().updateInstrumentPack(packId, { status: 'exception' });
+    });
+
+    set({ exceptionRecords: newExceptionRecords });
+    saveToStorage(STORAGE_KEY, { ...get(), exceptionRecords: newExceptionRecords });
+  },
+
+  reSterilizePack: (packId, operator) => {
+    get().updateInstrumentPack(packId, { status: 'sterilizing' });
+
+    const newBatchId = get().createSterilizationBatch([packId], operator);
+    get().startSterilization(newBatchId, operator);
   },
 
   addExceptionRecord: (record) => {

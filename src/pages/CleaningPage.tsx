@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Droplets, Clock, User, Stethoscope, Thermometer, Timer, Beaker, CheckCircle2, Plus, Search } from 'lucide-react';
+import { Droplets, Clock, User, Stethoscope, Thermometer, Timer, Beaker, CheckCircle2, Plus, Search, Printer } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import StatusBadge from '@/components/StatusBadge';
 import Modal from '@/components/Modal';
@@ -94,6 +94,126 @@ const CleaningPage = () => {
       ph: editingParams.ph,
     });
     setIsEditingParams(false);
+  };
+
+  const handlePrint = () => {
+    if (!currentRecord || !currentPack) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('请允许弹出窗口以进行打印');
+      return;
+    }
+
+    const stepsCompleted = currentRecord.steps.filter(s => s.completed).length;
+    const stepsTotal = currentRecord.steps.length;
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>清洗消毒登记单</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Microsoft YaHei', sans-serif; padding: 30px; color: #333; }
+    h1 { font-size: 24px; text-align: center; margin-bottom: 20px; color: #0E7490; }
+    .section { margin-bottom: 20px; }
+    .section-title { font-size: 16px; font-weight: bold; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 2px solid #0E7490; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .info-item { font-size: 14px; }
+    .info-item .label { color: #666; margin-right: 8px; }
+    .info-item .value { font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-size: 14px; }
+    th { background-color: #f0f9ff; font-weight: bold; }
+    .status-ok { color: #16a34a; }
+    .status-pending { color: #ca8a04; }
+    .signature { display: flex; justify-content: space-between; margin-top: 40px; }
+    .signature-box { width: 200px; }
+    .signature-line { border-bottom: 1px solid #000; height: 30px; margin-bottom: 5px; }
+    .signature-label { text-align: center; font-size: 14px; }
+    .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #999; }
+    @media print {
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <h1>清洗消毒登记单</h1>
+
+  <div class="section">
+    <div class="section-title">基本信息</div>
+    <div class="info-grid">
+      <div class="info-item"><span class="label">器械包名称：</span><span class="value">${currentPack.name}</span></div>
+      <div class="info-item"><span class="label">器械包编号：</span><span class="value">${currentPack.code}</span></div>
+      <div class="info-item"><span class="label">患者姓名：</span><span class="value">${currentRecord.patientName || '-'}</span></div>
+      <div class="info-item"><span class="label">椅位：</span><span class="value">${currentRecord.chairNumber || '-'}</span></div>
+      <div class="info-item"><span class="label">回收人员：</span><span class="value">${currentRecord.recoveredBy}</span></div>
+      <div class="info-item"><span class="label">回收时间：</span><span class="value">${formatDateTime(currentRecord.recoveredAt)}</span></div>
+      <div class="info-item"><span class="label">清洗状态：</span><span class="value">${currentRecord.status === 'completed' ? '已完成' : '清洗中'}</span></div>
+      <div class="info-item"><span class="label">完成时间：</span><span class="value">${currentRecord.completedAt ? formatDateTime(currentRecord.completedAt) : '-'}</span></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">关键参数</div>
+    <div class="info-grid">
+      <div class="info-item"><span class="label">清洗温度：</span><span class="value">${currentRecord.params.temperature ? currentRecord.params.temperature + '°C' : '-'}</span></div>
+      <div class="info-item"><span class="label">清洗时长：</span><span class="value">${currentRecord.params.duration ? currentRecord.params.duration + 'min' : '-'}</span></div>
+      <div class="info-item"><span class="label">酶浓度：</span><span class="value">${currentRecord.params.enzymeConcentration || '-'}</span></div>
+      <div class="info-item"><span class="label">pH值：</span><span class="value">${currentRecord.params.ph || '-'}</span></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">清洗步骤（${stepsCompleted}/${stepsTotal}）</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 60px">序号</th>
+          <th>步骤名称</th>
+          <th style="width: 100px">状态</th>
+          <th>完成时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${currentRecord.steps.map((step, idx) => `
+          <tr>
+            <td>${idx + 1}</td>
+            <td>${step.name}</td>
+            <td class="${step.completed ? 'status-ok' : 'status-pending'}">${step.completed ? '✓ 已完成' : '○ 待执行'}</td>
+            <td>${step.completedAt ? formatDateTime(step.completedAt) : '-'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="signature">
+    <div class="signature-box">
+      <div class="signature-line"></div>
+      <div class="signature-label">回收人员签字</div>
+    </div>
+    <div class="signature-box">
+      <div class="signature-line"></div>
+      <div class="signature-label">复核人员签字</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    打印时间：${formatDateTime(new Date().toISOString())}
+  </div>
+</body>
+</html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 250);
   };
 
   const currentRecord = selectedRecord ? cleaningRecords.find((r) => r.id === selectedRecord) : null;
@@ -346,6 +466,13 @@ const CleaningPage = () => {
         size="lg"
         footer={
           <>
+            <button
+              onClick={handlePrint}
+              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
+            >
+              <Printer size={16} />
+              打印登记单
+            </button>
             {isEditingParams ? (
               <button
                 onClick={handleSaveParams}

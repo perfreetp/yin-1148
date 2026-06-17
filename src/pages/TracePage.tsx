@@ -152,8 +152,9 @@ const TracePage = () => {
           if (isSameDate(c.recoveredAt, searchValue)) datePackIds.add(c.packId);
         });
         sterilizationBatches.forEach((b) => {
-          const ts = b.startedAt || b.releasedAt;
-          if (ts && isSameDate(ts, searchValue)) {
+          const matchStart = b.startedAt && isSameDate(b.startedAt, searchValue);
+          const matchRelease = b.releasedAt && isSameDate(b.releasedAt, searchValue);
+          if (matchStart || matchRelease) {
             b.packIds.forEach((pid) => datePackIds.add(pid));
           }
         });
@@ -231,26 +232,42 @@ const TracePage = () => {
     });
 
     packBatches.forEach((batch) => {
-      const ts = batch.startedAt || batch.releasedAt || new Date().toISOString();
-      if (!inDateRange(ts)) return;
-      const operators = [batch.operator1, batch.operator2].filter(Boolean).join(' / ');
-      events.push({
-        id: `sterilization-${batch.id}`,
-        type: 'sterilization',
-        title: '灭菌处理',
-        description: `批次 ${batch.batchNo} · ${batch.temperature}°C · ${batch.duration}s${operators ? ' · 操作人: ' + operators : ''}`,
-        timestamp: ts,
-        operator: operators,
-        details: {
-          批次号: batch.batchNo,
-          温度: `${batch.temperature}°C`,
-          压力: `${batch.pressure}kPa`,
-          时长: `${batch.duration}s`,
-          状态: batch.status,
-          操作人1: batch.operator1 || '-',
-          操作人2: batch.operator2 || '-',
-        },
-      });
+      if (batch.startedAt && inDateRange(batch.startedAt)) {
+        events.push({
+          id: `sterilization-start-${batch.id}`,
+          type: 'sterilization',
+          title: '开始灭菌',
+          description: `批次 ${batch.batchNo} · ${batch.temperature}°C · ${batch.duration}s · 操作人: ${batch.operator1 || '-'}`,
+          timestamp: batch.startedAt,
+          operator: batch.operator1 || '',
+          details: {
+            类型: '开始灭菌',
+            批次号: batch.batchNo,
+            温度: `${batch.temperature}°C`,
+            压力: `${batch.pressure}kPa`,
+            时长: `${batch.duration}s`,
+            操作人: batch.operator1 || '-',
+          },
+        });
+      }
+
+      if (batch.releasedAt && inDateRange(batch.releasedAt)) {
+        const operators = [batch.operator1, batch.operator2].filter(Boolean).join(' / ');
+        events.push({
+          id: `sterilization-release-${batch.id}`,
+          type: 'sterilization',
+          title: '灭菌放行',
+          description: `批次 ${batch.batchNo} · 双人确认放行 · 操作人: ${operators}`,
+          timestamp: batch.releasedAt,
+          operator: batch.operator2 || '',
+          details: {
+            类型: '灭菌放行',
+            批次号: batch.batchNo,
+            操作人1: batch.operator1 || '-',
+            操作人2: batch.operator2 || '-',
+          },
+        });
+      }
     });
 
     packExceptions.forEach((exception) => {
@@ -339,6 +356,34 @@ const TracePage = () => {
   };
 
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+  const [expandedPackId, setExpandedPackId] = useState<string | null>(null);
+
+  const getLatestOperator = (packId: string): { name: string; action: string; time: string } | null => {
+    const allEvents: { timestamp: string; operator: string; action: string }[] = [];
+
+    usageRecords
+      .filter((u) => u.packId === packId)
+      .forEach((u) => allEvents.push({ timestamp: u.usedAt, operator: u.operator, action: '开包使用' }));
+
+    cleaningRecords
+      .filter((c) => c.packId === packId)
+      .forEach((c) => allEvents.push({ timestamp: c.recoveredAt, operator: c.recoveredBy, action: '回收清洗' }));
+
+    sterilizationBatches
+      .filter((b) => b.packIds.includes(packId))
+      .forEach((b) => {
+        if (b.startedAt) allEvents.push({ timestamp: b.startedAt, operator: b.operator1 || '', action: '开始灭菌' });
+        if (b.releasedAt) allEvents.push({ timestamp: b.releasedAt, operator: b.operator2 || b.operator1 || '', action: '灭菌放行' });
+      });
+
+    exceptionRecords
+      .filter((e) => e.packId === packId)
+      .forEach((e) => allEvents.push({ timestamp: e.reportedAt, operator: e.reportedBy, action: '异常上报' }));
+
+    if (allEvents.length === 0) return null;
+    allEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return { name: allEvents[0].operator, action: allEvents[0].action, time: allEvents[0].timestamp };
+  };
 
   return (
     <div className="space-y-6">
@@ -442,45 +487,105 @@ const TracePage = () => {
           </div>
 
           <div className="divide-y divide-gray-100">
-            {searchResults.map((pack) => (
-              <div
-                key={pack.id}
-                className="px-5 py-4 hover:bg-gray-50 transition-colors cursor-pointer flex items-center gap-4"
-                onClick={() => viewTraceDetail(pack.id)}
-              >
-                <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center">
-                  <Package size={24} className="text-primary-600" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-1">
-                    <p className="font-semibold text-gray-900">{pack.name}</p>
-                    <StatusBadge type="instrument" status={pack.status} />
-                  </div>
-                  <p className="text-sm text-gray-500">
-                    {pack.code} · {pack.type} · 条码: {pack.barcode}
-                  </p>
-                </div>
-                <div className="text-right">
-                  {pack.sterilizedAt && (
-                    <p className="text-sm text-gray-500">
-                      灭菌: {formatDateTime(pack.sterilizedAt)}
-                    </p>
-                  )}
-                  {pack.expiresAt && (
-                    <p
-                      className={`text-sm font-medium ${
-                        new Date(pack.expiresAt) < new Date()
-                          ? 'text-danger-600'
-                          : 'text-success-600'
-                      }`}
+            {searchResults.map((pack) => {
+              const isExpanded = expandedPackId === pack.id;
+              const latest = getLatestOperator(pack.id);
+              return (
+                <div key={pack.id}>
+                  <div
+                    className="px-5 py-4 hover:bg-gray-50 transition-colors flex items-center gap-4"
+                  >
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedPackId(isExpanded ? null : pack.id);
+                      }}
+                      className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
                     >
-                      有效期: {formatDateTime(pack.expiresAt)}
-                    </p>
+                      {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                    </button>
+                    <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center">
+                      <Package size={24} className="text-primary-600" />
+                    </div>
+                    <div className="flex-1 cursor-pointer" onClick={() => viewTraceDetail(pack.id)}>
+                      <div className="flex items-center gap-3 mb-1">
+                        <p className="font-semibold text-gray-900">{pack.name}</p>
+                        <StatusBadge type="instrument" status={pack.status} />
+                      </div>
+                      <p className="text-sm text-gray-500">
+                        {pack.code} · {pack.type} · 条码: {pack.barcode}
+                      </p>
+                      {latest && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          最近操作：{latest.action} · {latest.name} · {formatDateTime(latest.time)}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      {pack.sterilizedAt && (
+                        <p className="text-sm text-gray-500">
+                          灭菌: {formatDateTime(pack.sterilizedAt)}
+                        </p>
+                      )}
+                      {pack.expiresAt && (
+                        <p
+                          className={`text-sm font-medium ${
+                            new Date(pack.expiresAt) < new Date()
+                              ? 'text-danger-600'
+                              : 'text-success-600'
+                          }`}
+                        >
+                          有效期: {formatDateTime(pack.expiresAt)}
+                        </p>
+                      )}
+                    </div>
+                    <ArrowRight size={20} className="text-gray-400 cursor-pointer" onClick={() => viewTraceDetail(pack.id)} />
+                  </div>
+                  {isExpanded && (
+                    <div className="px-5 pb-5 pt-2 bg-gray-50 border-t border-gray-100">
+                      <div className="grid grid-cols-3 gap-4 mb-3">
+                        <div className="bg-white rounded-lg p-3 border border-gray-200">
+                          <p className="text-xs text-gray-500 mb-1">当前状态</p>
+                          <div className="flex items-center gap-2">
+                            <StatusBadge type="instrument" status={pack.status} />
+                          </div>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 border border-gray-200">
+                          <p className="text-xs text-gray-500 mb-1">最近操作人</p>
+                          <p className="font-medium text-gray-900">{latest?.name || '-'}</p>
+                          <p className="text-xs text-gray-400">{latest?.action || ''} · {latest ? formatDateTime(latest.time) : ''}</p>
+                        </div>
+                        <div className="bg-white rounded-lg p-3 border border-gray-200">
+                          <p className="text-xs text-gray-500 mb-1">器械数量</p>
+                          <p className="font-medium text-gray-900 text-lg">{pack.items.length} 件</p>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-2">器械清单</p>
+                        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                          <div className="grid grid-cols-4 gap-2 px-3 py-2 bg-gray-100 text-xs font-medium text-gray-600">
+                            <div>名称</div>
+                            <div>规格</div>
+                            <div>数量</div>
+                            <div>状态</div>
+                          </div>
+                          <div className="divide-y divide-gray-100">
+                            {pack.items.map((item: any) => (
+                              <div key={item.id} className="grid grid-cols-4 gap-2 px-3 py-2 text-sm">
+                                <div className="text-gray-900">{item.name}</div>
+                                <div className="text-gray-500">{item.specification || '-'}</div>
+                                <div className="text-gray-900 font-medium">{item.quantity}</div>
+                                <div className="text-success-600">正常</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
-                <ArrowRight size={20} className="text-gray-400" />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
