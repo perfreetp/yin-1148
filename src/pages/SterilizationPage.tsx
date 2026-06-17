@@ -18,23 +18,36 @@ const SterilizationPage = () => {
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false);
+  const [isStartModalOpen, setIsStartModalOpen] = useState(false);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedPacks, setSelectedPacks] = useState<string[]>([]);
   const [releaseOperator2, setReleaseOperator2] = useState('');
+  const [createOperator1, setCreateOperator1] = useState(STAFF[0]);
+  const [startOperator1, setStartOperator1] = useState(STAFF[0]);
 
   const availablePacks = instrumentPacks.filter((pack) => pack.status === 'sterilizing');
 
   const handleCreateBatch = () => {
-    if (selectedPacks.length === 0) return;
-    const batchId = createSterilizationBatch(selectedPacks);
-    startSterilization(batchId);
+    if (selectedPacks.length === 0 || !createOperator1) return;
+    const batchId = createSterilizationBatch(selectedPacks, createOperator1);
+    startSterilization(batchId, createOperator1);
     setIsCreateModalOpen(false);
     setSelectedPacks([]);
+    setCreateOperator1(STAFF[0]);
   };
 
   const handleStartSterilization = (batchId: string) => {
-    startSterilization(batchId);
+    setSelectedBatchId(batchId);
+    setStartOperator1(STAFF[0]);
+    setIsStartModalOpen(true);
+  };
+
+  const confirmStartSterilization = () => {
+    if (!selectedBatchId || !startOperator1) return;
+    startSterilization(selectedBatchId, startOperator1);
+    setIsStartModalOpen(false);
+    setSelectedBatchId(null);
   };
 
   const handleCompleteSterilization = (batchId: string) => {
@@ -352,6 +365,24 @@ const SterilizationPage = () => {
             <span className="font-semibold text-primary-700">{selectedPacks.length} 个</span>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <Users size={14} className="inline mr-1" />
+              第一操作人 *
+            </label>
+            <select
+              value={createOperator1}
+              onChange={(e) => setCreateOperator1(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+            >
+              {STAFF.map((staff) => (
+                <option key={staff} value={staff}>
+                  {staff}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="border border-gray-200 rounded-xl max-h-80 overflow-y-auto">
             {availablePacks.length === 0 ? (
               <div className="py-8 text-center text-gray-400">
@@ -454,6 +485,68 @@ const SterilizationPage = () => {
             <div className="bg-warning-50 rounded-lg p-3 text-sm text-warning-700">
               <AlertCircle size={14} className="inline mr-1" />
               放行后器械包进入无菌库存，有效期 {STERILE_VALID_DAYS} 天
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={isStartModalOpen}
+        onClose={() => setIsStartModalOpen(false)}
+        title="开始灭菌"
+        size="md"
+        footer={
+          <>
+            <button
+              onClick={() => setIsStartModalOpen(false)}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={confirmStartSterilization}
+              disabled={!startOperator1}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              确认开始
+            </button>
+          </>
+        }
+      >
+        {selectedBatch && (
+          <div className="space-y-4">
+            <div className="bg-primary-50 border border-primary-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-primary-700 font-medium mb-2">
+                <Flame size={20} />
+                准备开始灭菌程序
+              </div>
+              <p className="text-sm text-primary-600">
+                批次 {sterilizationBatches.find(b => b.id === selectedBatchId)?.batchNo}，共 {sterilizationBatches.find(b => b.id === selectedBatchId)?.packIds.length} 个器械包
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <Users size={14} className="inline mr-1" />
+                第一操作人 *
+              </label>
+              <select
+                value={startOperator1}
+                onChange={(e) => setStartOperator1(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+              >
+                {STAFF.map((staff) => (
+                  <option key={staff} value={staff}>
+                    {staff}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 space-y-1">
+              <p>灭菌温度：134°C</p>
+              <p>灭菌压力：210kPa</p>
+              <p>灭菌时长：180s</p>
             </div>
           </div>
         )}

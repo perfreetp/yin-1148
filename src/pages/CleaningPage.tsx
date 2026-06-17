@@ -26,6 +26,14 @@ const CleaningPage = () => {
     ph: 7.5,
   });
 
+  const [editingParams, setEditingParams] = useState({
+    temperature: 0,
+    duration: 0,
+    enzymeConcentration: '',
+    ph: 0,
+  });
+  const [isEditingParams, setIsEditingParams] = useState(false);
+
   const availablePacks = instrumentPacks.filter(
     (pack) => pack.status === 'in_use' || pack.status === 'exception' || pack.status === 'borrowed'
   );
@@ -64,7 +72,28 @@ const CleaningPage = () => {
 
   const viewRecordDetail = (recordId: string) => {
     setSelectedRecord(recordId);
+    const record = cleaningRecords.find((r) => r.id === recordId);
+    if (record) {
+      setEditingParams({
+        temperature: (record.params.temperature as number) || 0,
+        duration: (record.params.duration as number) || 0,
+        enzymeConcentration: (record.params.enzymeConcentration as string) || '',
+        ph: (record.params.ph as number) || 0,
+      });
+    }
+    setIsEditingParams(false);
     setDetailModalOpen(true);
+  };
+
+  const handleSaveParams = () => {
+    if (!selectedRecord) return;
+    updateCleaningParams(selectedRecord, {
+      temperature: editingParams.temperature,
+      duration: editingParams.duration,
+      enzymeConcentration: editingParams.enzymeConcentration,
+      ph: editingParams.ph,
+    });
+    setIsEditingParams(false);
   };
 
   const currentRecord = selectedRecord ? cleaningRecords.find((r) => r.id === selectedRecord) : null;
@@ -316,17 +345,27 @@ const CleaningPage = () => {
         title="清洗消毒详情"
         size="lg"
         footer={
-          currentRecord?.status === 'cleaning' ? (
-            <button
-              onClick={() => {
-                handleCompleteCleaning(currentRecord.id);
-                setDetailModalOpen(false);
-              }}
-              className="px-4 py-2 bg-success-600 text-white rounded-lg hover:bg-success-700 transition-colors"
-            >
-              完成清洗
-            </button>
-          ) : null
+          <>
+            {isEditingParams ? (
+              <button
+                onClick={handleSaveParams}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                保存参数
+              </button>
+            ) : null}
+            {currentRecord?.status === 'cleaning' ? (
+              <button
+                onClick={() => {
+                  handleCompleteCleaning(currentRecord.id);
+                  setDetailModalOpen(false);
+                }}
+                className="px-4 py-2 bg-success-600 text-white rounded-lg hover:bg-success-700 transition-colors"
+              >
+                完成清洗
+              </button>
+            ) : null}
+          </>
         }
       >
         {currentRecord && currentPack && (
@@ -410,28 +449,91 @@ const CleaningPage = () => {
             </div>
 
             <div>
-              <h4 className="font-semibold text-gray-900 mb-3">关键参数</h4>
-              <div className="grid grid-cols-4 gap-3">
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <Thermometer size={20} className="mx-auto mb-1 text-orange-500" />
-                  <p className="text-lg font-bold text-gray-900">{currentRecord.params.temperature || '-'}°C</p>
-                  <p className="text-xs text-gray-500">清洗温度</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <Timer size={20} className="mx-auto mb-1 text-blue-500" />
-                  <p className="text-lg font-bold text-gray-900">{currentRecord.params.duration || '-'}min</p>
-                  <p className="text-xs text-gray-500">清洗时长</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <Beaker size={20} className="mx-auto mb-1 text-green-500" />
-                  <p className="text-lg font-bold text-gray-900">{currentRecord.params.enzymeConcentration || '-'}</p>
-                  <p className="text-xs text-gray-500">酶浓度</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <span className="text-lg font-bold text-gray-900">pH {currentRecord.params.ph || '-'}</span>
-                  <p className="text-xs text-gray-500">pH值</p>
-                </div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-gray-900">关键参数</h4>
+                {!isEditingParams ? (
+                  <button
+                    onClick={() => setIsEditingParams(true)}
+                    className="text-sm text-primary-600 hover:text-primary-700"
+                  >
+                    编辑参数
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsEditingParams(false)}
+                    className="text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    取消编辑
+                  </button>
+                )}
               </div>
+              {isEditingParams ? (
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-2 text-center">清洗温度 (°C)</p>
+                    <input
+                      type="number"
+                      value={editingParams.temperature || ''}
+                      onChange={(e) => setEditingParams({ ...editingParams, temperature: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      placeholder="温度"
+                    />
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-2 text-center">清洗时长 (min)</p>
+                    <input
+                      type="number"
+                      value={editingParams.duration || ''}
+                      onChange={(e) => setEditingParams({ ...editingParams, duration: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      placeholder="时长"
+                    />
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-2 text-center">酶浓度</p>
+                    <input
+                      type="text"
+                      value={editingParams.enzymeConcentration}
+                      onChange={(e) => setEditingParams({ ...editingParams, enzymeConcentration: e.target.value })}
+                      className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      placeholder="如 1:200"
+                    />
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-2 text-center">pH值</p>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={editingParams.ph || ''}
+                      onChange={(e) => setEditingParams({ ...editingParams, ph: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      placeholder="pH"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <Thermometer size={20} className="mx-auto mb-1 text-orange-500" />
+                    <p className="text-lg font-bold text-gray-900">{currentRecord.params.temperature || '-'}°C</p>
+                    <p className="text-xs text-gray-500">清洗温度</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <Timer size={20} className="mx-auto mb-1 text-blue-500" />
+                    <p className="text-lg font-bold text-gray-900">{currentRecord.params.duration || '-'}min</p>
+                    <p className="text-xs text-gray-500">清洗时长</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <Beaker size={20} className="mx-auto mb-1 text-green-500" />
+                    <p className="text-lg font-bold text-gray-900">{currentRecord.params.enzymeConcentration || '-'}</p>
+                    <p className="text-xs text-gray-500">酶浓度</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-center">
+                    <span className="text-lg font-bold text-gray-900">pH {currentRecord.params.ph || '-'}</span>
+                    <p className="text-xs text-gray-500">pH值</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

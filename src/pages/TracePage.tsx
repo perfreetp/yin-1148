@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Search,
   Package,
@@ -22,12 +22,34 @@ type QueryType = 'pack' | 'patient' | 'chair' | 'date' | null;
 
 const TracePage = () => {
   const { instrumentPacks, cleaningRecords, sterilizationBatches, usageRecords, exceptionRecords } = useAppStore();
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (e.detail) {
+        setQueryType('pack');
+        setSearchValue(e.detail);
+        setTimeout(() => {
+          const results = instrumentPacks.filter(
+            (pack) =>
+              pack.name.toLowerCase().includes(e.detail.toLowerCase()) ||
+              pack.code.toLowerCase().includes(e.detail.toLowerCase()) ||
+              pack.barcode.toLowerCase().includes(e.detail.toLowerCase())
+          );
+          setSearchResults(results);
+        }, 0);
+      }
+    };
+    window.addEventListener('trace-pack', handler);
+    return () => window.removeEventListener('trace-pack', handler);
+  }, [instrumentPacks]);
+
   const [queryType, setQueryType] = useState<QueryType>(null);
   const [searchValue, setSearchValue] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [traceEvents, setTraceEvents] = useState<TraceEvent[]>([]);
+  const [filterDate, setFilterDate] = useState<string | null>(null);
 
   const entryCards = [
     {
@@ -73,10 +95,21 @@ const TracePage = () => {
     setSearchResults([]);
   };
 
+  const isSameDate = (isoString: string, dateStr: string): boolean => {
+    const d1 = new Date(isoString);
+    const d2 = new Date(dateStr);
+    return (
+      d1.getFullYear() === d2.getFullYear() &&
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate()
+    );
+  };
+
   const handleSearch = () => {
     if (!queryType || !searchValue) return;
 
     let results: any[] = [];
+    setFilterDate(queryType === 'date' ? searchValue : null);
 
     switch (queryType) {
       case 'pack':
@@ -109,15 +142,40 @@ const TracePage = () => {
         ]);
         results = instrumentPacks.filter((p) => chairPackIds.has(p.id));
         break;
-      case 'date':
-        results = instrumentPacks;
+      case 'date': {
+        const datePackIds = new Set<string>();
+
+        usageRecords.forEach((u) => {
+          if (isSameDate(u.usedAt, searchValue)) datePackIds.add(u.packId);
+        });
+        cleaningRecords.forEach((c) => {
+          if (isSameDate(c.recoveredAt, searchValue)) datePackIds.add(c.packId);
+        });
+        sterilizationBatches.forEach((b) => {
+          const ts = b.startedAt || b.releasedAt;
+          if (ts && isSameDate(ts, searchValue)) {
+            b.packIds.forEach((pid) => datePackIds.add(pid));
+          }
+        });
+        exceptionRecords.forEach((e) => {
+          if (isSameDate(e.reportedAt, searchValue)) {
+            if (e.packId) datePackIds.add(e.packId);
+            if (e.batchId) {
+              const batch = sterilizationBatches.find((b) => b.id === e.batchId);
+              batch?.packIds.forEach((pid) => datePackIds.add(pid));
+            }
+          }
+        });
+
+        results = instrumentPacks.filter((p) => datePackIds.has(p.id));
         break;
+      }
     }
 
     setSearchResults(results);
   };
 
-  const buildTraceChain = (packId: string): TraceEvent[] => {
+  const buildTraceChain = (packId: string, dateFilter?: string | null): TraceEvent[] => {
     const events: TraceEvent[] = [];
     const pack = instrumentPacks.find((p) => p.id === packId);
     if (!pack) return events;
@@ -126,8 +184,18 @@ const TracePage = () => {
     const packUsages = usageRecords.filter((u) => u.packId === packId);
     const packExceptions = exceptionRecords.filter((e) => e.packId === packId);
     const packBatches = sterilizationBatches.filter((b) => b.packIds.includes(packId));
+    const batchIds = packBatches.map((b) => b.id);
+    const batchExceptions = exceptionRecords.filter(
+      (e) => e.batchId && batchIds.includes(e.batchId) && e.packId !== packId
+    );
+
+    const inDateRange = (ts: string): boolean => {
+      if (!dateFilter) return true;
+      return isSameDate(ts, dateFilter);
+    };
 
     packUsages.forEach((usage) => {
+      if (!inDateRange(usage.usedAt)) return;
       events.push({
         id: `usage-${usage.id}`,
         type: 'usage',
@@ -142,6 +210,7 @@ const TracePage = () => {
     });
 
     packCleanings.forEach((cleaning) => {
+      if (!inDateRange(cleaning.recoveredAt)) return;
       events.push({
         id: `cleaning-${cleaning.id}`,
         type: 'cleaning',
@@ -153,30 +222,39 @@ const TracePage = () => {
           patientName: cleaning.patientName,
           chairNumber: cleaning.chairNumber,
           status: cleaning.status,
+          温度: cleaning.params.temperature ? `${cleaning.params.temperature}°C` : undefined,
+          时长: cleaning.params.duration ? `${cleaning.params.duration}min` : undefined,
+          酶浓度: cleaning.params.enzymeConcentration || undefined,
+          pH值: cleaning.params.ph || undefined,
         },
       });
     });
 
     packBatches.forEach((batch) => {
+      const ts = batch.startedAt || batch.releasedAt || new Date().toISOString();
+      if (!inDateRange(ts)) return;
+      const operators = [batch.operator1, batch.operator2].filter(Boolean).join(' / ');
       events.push({
         id: `sterilization-${batch.id}`,
         type: 'sterilization',
         title: '灭菌处理',
-        description: `批次 ${batch.batchNo} · ${batch.temperature}°C · ${batch.duration}s`,
-        timestamp: batch.startedAt || batch.releasedAt || new Date().toISOString(),
-        operator: batch.operator1 || '',
+        description: `批次 ${batch.batchNo} · ${batch.temperature}°C · ${batch.duration}s${operators ? ' · 操作人: ' + operators : ''}`,
+        timestamp: ts,
+        operator: operators,
         details: {
-          batchNo: batch.batchNo,
-          temperature: batch.temperature,
-          pressure: batch.pressure,
-          duration: batch.duration,
-          status: batch.status,
-          operator2: batch.operator2,
+          批次号: batch.batchNo,
+          温度: `${batch.temperature}°C`,
+          压力: `${batch.pressure}kPa`,
+          时长: `${batch.duration}s`,
+          状态: batch.status,
+          操作人1: batch.operator1 || '-',
+          操作人2: batch.operator2 || '-',
         },
       });
     });
 
     packExceptions.forEach((exception) => {
+      if (!inDateRange(exception.reportedAt)) return;
       events.push({
         id: `exception-${exception.id}`,
         type: 'exception',
@@ -185,10 +263,34 @@ const TracePage = () => {
         timestamp: exception.reportedAt,
         operator: exception.reportedBy,
         details: {
-          type: exception.type,
-          status: exception.status,
-          handler: exception.handler,
-          handleResult: exception.handleResult,
+          类型: exception.type,
+          状态: exception.status,
+          关联批次: exception.batchId
+            ? sterilizationBatches.find((b) => b.id === exception.batchId)?.batchNo
+            : '-',
+          处理人: exception.handler || '-',
+          处理结果: exception.handleResult || '-',
+        },
+      });
+    });
+
+    batchExceptions.forEach((exception) => {
+      if (!inDateRange(exception.reportedAt)) return;
+      const relatedBatch = sterilizationBatches.find((b) => b.id === exception.batchId);
+      events.push({
+        id: `batch-exception-${exception.id}`,
+        type: 'exception',
+        title: '批次异常（关联影响）',
+        description: `[批次${relatedBatch?.batchNo || ''}] ${exception.description}`,
+        timestamp: exception.reportedAt,
+        operator: exception.reportedBy,
+        details: {
+          类型: exception.type,
+          状态: exception.status,
+          关联批次: relatedBatch?.batchNo || '-',
+          说明: '该器械包属于此异常批次',
+          处理人: exception.handler || '-',
+          处理结果: exception.handleResult || '-',
         },
       });
     });
@@ -200,7 +302,7 @@ const TracePage = () => {
 
   const viewTraceDetail = (packId: string) => {
     setSelectedPackId(packId);
-    setTraceEvents(buildTraceChain(packId));
+    setTraceEvents(buildTraceChain(packId, filterDate));
     setDetailModalOpen(true);
   };
 

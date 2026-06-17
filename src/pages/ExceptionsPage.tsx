@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { AlertTriangle, Plus, AlertCircle, CheckCircle2, Clock, User, Package, Search, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, Plus, AlertCircle, CheckCircle2, Clock, User, Package, Search, ArrowRight, ExternalLink } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import StatusBadge from '@/components/StatusBadge';
 import Modal from '@/components/Modal';
@@ -8,6 +9,7 @@ import type { ExceptionType } from '@/types';
 import { formatDateTime } from '@/utils/dateUtils';
 
 const ExceptionsPage = () => {
+  const navigate = useNavigate();
   const { exceptionRecords, instrumentPacks, sterilizationBatches, addExceptionRecord, handleException } = useAppStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isHandleModalOpen, setIsHandleModalOpen] = useState(false);
@@ -478,6 +480,80 @@ const ExceptionsPage = () => {
                 </p>
               </div>
             </div>
+
+            {selectedException.batchId && (
+              <>
+                <div className="bg-warning-50 border border-warning-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="text-sm text-warning-700 mb-1">关联灭菌批次</p>
+                      <p className="font-semibold text-warning-900">
+                        {
+                          sterilizationBatches.find(b => b.id === selectedException.batchId)?.batchNo || '-'
+                        }
+                      </p>
+                    </div>
+                    <div className="text-sm text-warning-700">
+                      含 {
+                        sterilizationBatches.find(b => b.id === selectedException.batchId)?.packIds.length || 0
+                      } 个器械包
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <AlertTriangle size={16} className="text-warning-500" />
+                    受影响器械包（院感排查范围）
+                  </h4>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+                      {(() => {
+                        const batch = sterilizationBatches.find(b => b.id === selectedException.batchId);
+                        const affectedPacks = batch ? instrumentPacks.filter(p => batch.packIds.includes(p.id)) : [];
+                        if (affectedPacks.length === 0) {
+                          return (
+                            <div className="py-6 text-center text-gray-400 text-sm">暂无器械包</div>
+                          );
+                        }
+                        return affectedPacks.map(pack => (
+                          <div
+                            key={pack.id}
+                            className="flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 bg-primary-50 rounded-lg flex items-center justify-center">
+                                <Package size={16} className="text-primary-600" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-gray-900 text-sm">{pack.name}</p>
+                                <p className="text-xs text-gray-500">{pack.code}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <StatusBadge type="instrument" status={pack.status} />
+                              <button
+                                onClick={() => {
+                                  navigate('/trace');
+                                  setTimeout(() => {
+                                    const ev = new CustomEvent('trace-pack', { detail: pack.code });
+                                    window.dispatchEvent(ev);
+                                  }, 100);
+                                }}
+                                className="p-1.5 text-primary-600 hover:bg-primary-50 rounded-lg"
+                                title="查看追溯链路"
+                              >
+                                <ExternalLink size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
 
             {selectedException.status === 'resolved' && (
               <div>

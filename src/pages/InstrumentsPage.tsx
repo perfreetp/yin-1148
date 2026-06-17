@@ -53,7 +53,12 @@ const InstrumentsPage = () => {
       name: pack.name,
       code: pack.code,
       type: pack.type,
-      items: pack.items,
+      items: pack.items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        specification: item.specification || '',
+      })),
     });
     setIsModalOpen(true);
   };

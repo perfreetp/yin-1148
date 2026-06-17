@@ -208,7 +208,7 @@ export const mockSterilizationBatches: SterilizationBatch[] = [
     duration: 180,
     operator1: '王护士',
     status: 'sterilizing',
-    packIds: ['pack-005'],
+    packIds: ['pack-004', 'pack-005'],
   },
   {
     id: 'batch-003',
@@ -247,6 +247,15 @@ export const mockExceptionRecords: ExceptionRecord[] = [
     description: '口镜镜片有划痕，影响使用',
     reportedBy: '王护士',
     reportedAt: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+    status: 'pending',
+  },
+  {
+    id: 'exception-003',
+    batchId: 'batch-001',
+    type: 'unqualified',
+    description: '院感抽检发现该批次灭菌指示卡变色不均，判定为灭菌不合格，需召回该批次所有器械包',
+    reportedBy: '张护士长',
+    reportedAt: new Date(now.getTime() - 4 * 60 * 60 * 1000).toISOString(),
     status: 'pending',
   },
 ];

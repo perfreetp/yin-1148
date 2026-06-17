@@ -42,8 +42,8 @@ interface AppState {
   updateCleaningParams: (recordId: string, params: Record<string, unknown>) => void;
   completeCleaning: (recordId: string) => void;
 
-  createSterilizationBatch: (packIds: string[]) => string;
-  startSterilization: (batchId: string) => void;
+  createSterilizationBatch: (packIds: string[], operator1: string) => string;
+  startSterilization: (batchId: string, operator1: string) => void;
   completeSterilization: (batchId: string) => void;
   releaseBatch: (batchId: string, operator2: string) => void;
 
@@ -161,6 +161,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const newRecords = [...get().cleaningRecords, newRecord];
     set({ cleaningRecords: newRecords });
+    saveToStorage(STORAGE_KEY, { ...get(), cleaningRecords: newRecords });
 
     get().updateInstrumentPack(record.packId, { status: 'cleaning' });
   },
@@ -194,6 +195,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         : record
     );
     set({ cleaningRecords: newRecords });
+    saveToStorage(STORAGE_KEY, { ...get(), cleaningRecords: newRecords });
 
     const record = get().cleaningRecords.find((r) => r.id === recordId);
     if (record) {
@@ -201,7 +203,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  createSterilizationBatch: (packIds) => {
+  createSterilizationBatch: (packIds, operator1) => {
     const batchId = generateId();
     const newBatch: SterilizationBatch = {
       id: batchId,
@@ -211,10 +213,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       duration: 180,
       status: 'pending',
       packIds,
+      operator1,
     };
 
     const newBatches = [...get().sterilizationBatches, newBatch];
     set({ sterilizationBatches: newBatches });
+    saveToStorage(STORAGE_KEY, { ...get(), sterilizationBatches: newBatches });
 
     packIds.forEach((packId) => {
       get().updateInstrumentPack(packId, { status: 'sterilizing', currentBatchId: batchId });
@@ -223,10 +227,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     return batchId;
   },
 
-  startSterilization: (batchId) => {
+  startSterilization: (batchId, operator1) => {
     const newBatches = get().sterilizationBatches.map((batch) =>
       batch.id === batchId
-        ? { ...batch, status: 'sterilizing' as const, startedAt: new Date().toISOString() }
+        ? {
+            ...batch,
+            status: 'sterilizing' as const,
+            startedAt: new Date().toISOString(),
+            operator1: batch.operator1 || operator1,
+          }
         : batch
     );
     set({ sterilizationBatches: newBatches });
@@ -256,6 +265,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         : batch
     );
     set({ sterilizationBatches: newBatches });
+    saveToStorage(STORAGE_KEY, { ...get(), sterilizationBatches: newBatches });
 
     const batch = get().sterilizationBatches.find((b) => b.id === batchId);
     if (batch) {
@@ -279,6 +289,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const newRecords = [...get().exceptionRecords, newRecord];
     set({ exceptionRecords: newRecords });
+    saveToStorage(STORAGE_KEY, { ...get(), exceptionRecords: newRecords });
 
     if (record.packId) {
       get().updateInstrumentPack(record.packId, { status: 'exception' });
@@ -298,6 +309,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         : record
     );
     set({ exceptionRecords: newRecords });
+    saveToStorage(STORAGE_KEY, { ...get(), exceptionRecords: newRecords });
 
     const record = get().exceptionRecords.find((r) => r.id === id);
     if (record?.packId) {
@@ -328,6 +340,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const newRecords = [...get().usageRecords, usageRecord];
     set({ usageRecords: newRecords });
+    saveToStorage(STORAGE_KEY, { ...get(), usageRecords: newRecords });
 
     get().updateInstrumentPack(packId, {
       status: 'in_use',
@@ -343,6 +356,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
     const newRecords = [...get().borrowRecords, newRecord];
     set({ borrowRecords: newRecords });
+    saveToStorage(STORAGE_KEY, { ...get(), borrowRecords: newRecords });
 
     if (record.packId) {
       get().updateInstrumentPack(record.packId, { status: 'borrowed' });
@@ -356,6 +370,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         : record
     );
     set({ borrowRecords: newRecords });
+    saveToStorage(STORAGE_KEY, { ...get(), borrowRecords: newRecords });
 
     const record = get().borrowRecords.find((r) => r.id === recordId);
     if (record?.packId) {
