@@ -209,7 +209,7 @@ const TracePage = () => {
     const packBatches = sterilizationBatches.filter((b) => b.packIds.includes(packId));
     const batchIds = packBatches.map((b) => b.id);
     const batchExceptions = exceptionRecords.filter(
-      (e) => e.batchId && batchIds.includes(e.batchId) && e.packId !== packId
+      (e) => e.batchId && batchIds.includes(e.batchId) && !e.packId
     );
 
     const inDateRange = (ts: string): boolean => {
@@ -558,7 +558,8 @@ const TracePage = () => {
               {batchResult.packs.map((pack: any) => {
                 const latest = getLatestOperator(pack.id);
                 const hasUsage = usageRecords.some(u => u.packId === pack.id);
-                const hasBorrow = borrowRecords.some(b => b.packId === pack.id && !b.returnedAt);
+                const isBorrowed = borrowRecords.some(b => b.packId === pack.id && !b.returnedAt);
+                const hasBorrowHistory = borrowRecords.some(b => b.packId === pack.id && b.returnedAt);
                 return (
                   <div key={pack.id} className="px-5 py-4 hover:bg-gray-50 transition-colors flex items-center gap-4">
                     <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center">
@@ -569,7 +570,8 @@ const TracePage = () => {
                         <p className="font-semibold text-gray-900">{pack.name}</p>
                         <StatusBadge type="instrument" status={pack.status} />
                         {hasUsage && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">已使用</span>}
-                        {hasBorrow && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">借出中</span>}
+                        {isBorrowed && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">借出中</span>}
+                        {!isBorrowed && hasBorrowHistory && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">曾借出</span>}
                       </div>
                       <p className="text-sm text-gray-500">
                         {pack.code} · {pack.type}
@@ -730,10 +732,21 @@ const TracePage = () => {
         </div>
       )}
 
-      {queryType && searchResults.length === 0 && searchValue && (
+      {queryType && searchValue && searchResults.length === 0 && !batchResult && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 py-12 text-center">
           <Search size={48} className="mx-auto mb-3 text-gray-300" />
-          <p className="text-gray-500">未找到相关记录</p>
+          <p className="text-gray-500">
+            {queryType === 'batch' ? '未找到该灭菌批次' : '未找到相关记录'}
+          </p>
+          {queryType === 'batch' && (
+            <p className="text-gray-400 text-sm mt-2">请检查批次号是否正确，例如：MJ20240617AB</p>
+          )}
+        </div>
+      )}
+
+      {queryType === 'batch' && batchResult && searchResults.length === 0 && (
+        <div className="text-center py-2 text-xs text-gray-400">
+          以上为该批次的全部器械包，共 {batchResult.packs.length} 个
         </div>
       )}
 
@@ -742,7 +755,7 @@ const TracePage = () => {
           <Search size={64} className="mx-auto mb-4 text-gray-200" />
           <p className="text-gray-500 text-lg">请选择上方查询入口开始追溯</p>
           <p className="text-gray-400 text-sm mt-2">
-            支持按器械包、患者、椅位、日期四个维度查询
+            支持按器械包、患者、椅位、日期、批次五个维度查询
           </p>
         </div>
       )}

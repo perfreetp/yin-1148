@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Plus, AlertCircle, CheckCircle2, Clock, User, Package, Search, ArrowRight, ExternalLink } from 'lucide-react';
+import { AlertTriangle, Plus, AlertCircle, CheckCircle2, Clock, User, Package, Search, ArrowRight, ExternalLink, Download } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import StatusBadge from '@/components/StatusBadge';
 import Modal from '@/components/Modal';
@@ -27,6 +27,9 @@ const ExceptionsPage = () => {
     exceptionRecords,
     instrumentPacks,
     sterilizationBatches,
+    usageRecords,
+    cleaningRecords,
+    borrowRecords,
     addExceptionRecord,
     handleException,
     recallBatch,
@@ -118,6 +121,218 @@ const ExceptionsPage = () => {
     setReSterilizePackId(packId);
     setReSterilizeOperator(STAFF[0]);
     setIsReSterilizeModalOpen(true);
+  };
+
+  const generateDisposalFormHtml = (): string => {
+    if (!selectedException?.batchId) return '';
+
+    const batch = sterilizationBatches.find(b => b.id === selectedException.batchId);
+    if (!batch) return '';
+
+    const batchPacks = instrumentPacks.filter(p => batch.packIds.includes(p.id));
+    const totalCount = batchPacks.length;
+
+    const pendingCount = batchPacks.filter(p => p.status === 'exception').length;
+    const cleaningCount = batchPacks.filter(p => p.status === 'cleaning').length;
+    const sterilizingCount = batchPacks.filter(p => p.status === 'sterilizing').length;
+    const sterilizedCount = batchPacks.filter(p => p.status === 'sterilized').length;
+
+    const recallException = exceptionRecords.find(
+      e => e.batchId === selectedException.batchId && !e.packId && e.type === 'unqualified'
+    );
+
+    const getStatusText = (status: string): string => {
+      const map: Record<string, string> = {
+        in_use: '使用中',
+        cleaning: '清洗中',
+        sterilizing: '灭菌中',
+        sterilized: '已重新放行',
+        expired: '已过期',
+        exception: '待重新清洗',
+        borrowed: '已借出',
+      };
+      return map[status] || status;
+    };
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>灭菌批次召回处置单</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Microsoft YaHei', sans-serif; padding: 30px; color: #333; }
+    h1 { font-size: 24px; text-align: center; margin-bottom: 20px; color: #dc2626; }
+    .section { margin-bottom: 20px; }
+    .section-title { font-size: 16px; font-weight: bold; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 2px solid #dc2626; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .info-item { font-size: 14px; }
+    .info-item .label { color: #666; margin-right: 8px; }
+    .info-item .value { font-weight: bold; }
+    .progress-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 15px; }
+    .progress-card { padding: 12px; border-radius: 8px; text-align: center; }
+    .progress-card .num { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
+    .progress-card .label { font-size: 12px; }
+    .progress-card.pending { background-color: #fef2f2; color: #dc2626; }
+    .progress-card.cleaning { background-color: #fffbeb; color: #d97706; }
+    .progress-card.sterilizing { background-color: #eff6ff; color: #2563eb; }
+    .progress-card.sterilized { background-color: #f0fdf4; color: #16a34a; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-size: 14px; }
+    th { background-color: #fef2f2; font-weight: bold; color: #dc2626; }
+    .status-done { color: #16a34a; font-weight: bold; }
+    .status-pending { color: #dc2626; font-weight: bold; }
+    .status-progress { color: #d97706; font-weight: bold; }
+    .signature { display: flex; justify-content: space-between; margin-top: 40px; }
+    .signature-box { width: 200px; }
+    .signature-line { border-bottom: 1px solid #000; height: 30px; margin-bottom: 5px; }
+    .signature-label { text-align: center; font-size: 14px; }
+    .footer { text-align: center; margin-top: 30px; font-size: 12px; color: #999; }
+    @media print {
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <h1>灭菌批次召回处置单</h1>
+
+  <div class="section">
+    <div class="section-title">基本信息</div>
+    <div class="info-grid">
+      <div class="info-item"><span class="label">批次号：</span><span class="value">${batch.batchNo}</span></div>
+      <div class="info-item"><span class="label">关联异常：</span><span class="value">${selectedException.description}</span></div>
+      <div class="info-item"><span class="label">召回人：</span><span class="value">${recallException?.reportedBy || '-'}</span></div>
+      <div class="info-item"><span class="label">召回时间：</span><span class="value">${recallException?.reportedAt ? formatDateTime(recallException.reportedAt) : '-'}</span></div>
+      <div class="info-item"><span class="label">灭菌开始：</span><span class="value">${batch.startedAt ? formatDateTime(batch.startedAt) : '-'}</span></div>
+      <div class="info-item"><span class="label">放行时间：</span><span class="value">${batch.releasedAt ? formatDateTime(batch.releasedAt) : '-'}</span></div>
+      <div class="info-item"><span class="label">灭菌参数：</span><span class="value">${batch.temperature}°C / ${batch.pressure}kPa / ${batch.duration}s</span></div>
+      <div class="info-item"><span class="label">器械包总数：</span><span class="value">${totalCount} 个</span></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">处置进度</div>
+    <div class="progress-grid">
+      <div class="progress-card pending">
+        <div class="num">${pendingCount}</div>
+        <div class="label">待重新清洗</div>
+      </div>
+      <div class="progress-card cleaning">
+        <div class="num">${cleaningCount}</div>
+        <div class="label">清洗中</div>
+      </div>
+      <div class="progress-card sterilizing">
+        <div class="num">${sterilizingCount}</div>
+        <div class="label">灭菌中</div>
+      </div>
+      <div class="progress-card sterilized">
+        <div class="num">${sterilizedCount}</div>
+        <div class="label">已重新放行</div>
+      </div>
+    </div>
+    <p class="info-item" style="text-align: right;">
+      <span class="label">整体完成度：</span>
+      <span class="value">${totalCount > 0 ? Math.round((sterilizedCount / totalCount) * 100) : 0}%</span>
+    </p>
+  </div>
+
+  <div class="section">
+    <div class="section-title">受影响器械包清单</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 60px">序号</th>
+          <th>器械包名称</th>
+          <th>编号</th>
+          <th style="width: 120px">当前环节</th>
+          <th style="width: 100px">状态</th>
+          <th>最近操作时间</th>
+          <th>最近操作人</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${batchPacks.map((pack, idx) => {
+          const events: { timestamp: string; operator: string; action: string }[] = [];
+          const usages = usageRecords.filter(u => u.packId === pack.id);
+          const cleanings = cleaningRecords.filter(c => c.packId === pack.id);
+          const exceptions = exceptionRecords.filter(e => e.packId === pack.id);
+          const batches = sterilizationBatches.filter(b => b.packIds.includes(pack.id));
+
+          usages.forEach(u => events.push({ timestamp: u.usedAt, operator: u.operator, action: '开包使用' }));
+          cleanings.forEach(c => events.push({ timestamp: c.recoveredAt, operator: c.recoveredBy, action: '回收清洗' }));
+          exceptions.forEach(e => events.push({ timestamp: e.reportedAt, operator: e.reportedBy, action: '异常上报' }));
+          batches.forEach(b => {
+            if (b.startedAt) events.push({ timestamp: b.startedAt, operator: b.operator1 || '', action: '开始灭菌' });
+            if (b.releasedAt) events.push({ timestamp: b.releasedAt, operator: b.operator2 || '', action: '灭菌放行' });
+          });
+
+          events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          const latest = events[0];
+
+          const statusClass = pack.status === 'sterilized' ? 'status-done'
+            : pack.status === 'exception' ? 'status-pending'
+            : 'status-progress';
+
+          return `
+            <tr>
+              <td>${idx + 1}</td>
+              <td>${pack.name}</td>
+              <td>${pack.code}</td>
+              <td>${getStatusText(pack.status)}</td>
+              <td class="${statusClass}">${pack.status === 'sterilized' ? '✓ 已完成' : pack.status === 'exception' ? '○ 待处理' : '⟳ 处理中'}</td>
+              <td>${latest ? formatDateTime(latest.timestamp) : '-'}</td>
+              <td>${latest?.operator || '-'}</td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="signature">
+    <div class="signature-box">
+      <div class="signature-line"></div>
+      <div class="signature-label">召回复核人</div>
+    </div>
+    <div class="signature-box">
+      <div class="signature-line"></div>
+      <div class="signature-label">院感负责人</div>
+    </div>
+    <div class="signature-box">
+      <div class="signature-line"></div>
+      <div class="signature-label">护士长</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    生成时间：${formatDateTime(new Date().toISOString())}
+  </div>
+</body>
+</html>
+    `;
+
+    return htmlContent;
+  };
+
+  const handleDownloadDisposal = () => {
+    if (!selectedException?.batchId) return;
+
+    const htmlContent = generateDisposalFormHtml();
+    if (!htmlContent) return;
+
+    const batch = sterilizationBatches.find(b => b.id === selectedException.batchId);
+
+    const blob = new Blob([htmlContent], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateStr = formatDateTime(new Date().toISOString()).replace(/[\/\s:]/g, '').slice(0, 14);
+    a.download = `灭菌批次召回处置单_${batch?.batchNo || 'UNKNOWN'}_${dateStr}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const viewDetail = (id: string) => {
@@ -486,6 +701,21 @@ const ExceptionsPage = () => {
         onClose={() => setDetailModalOpen(false)}
         title="异常详情"
         size="lg"
+        footer={
+          <>
+            {selectedException?.batchId && exceptionRecords.some(
+              e => e.batchId === selectedException.batchId && !e.packId && e.type === 'unqualified'
+            ) && (
+              <button
+                onClick={handleDownloadDisposal}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
+              >
+                <Download size={16} />
+                下载处置单
+              </button>
+            )}
+          </>
+        }
       >
         {selectedException && (
           <div className="space-y-6">
