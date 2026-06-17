@@ -18,10 +18,10 @@ import { CHAIRS } from '@/constants';
 import type { TraceEvent } from '@/types';
 import { formatDateTime, formatDateTimeFull } from '@/utils/dateUtils';
 
-type QueryType = 'pack' | 'patient' | 'chair' | 'date' | null;
+type QueryType = 'pack' | 'patient' | 'chair' | 'date' | 'batch' | null;
 
 const TracePage = () => {
-  const { instrumentPacks, cleaningRecords, sterilizationBatches, usageRecords, exceptionRecords } = useAppStore();
+  const { instrumentPacks, cleaningRecords, sterilizationBatches, usageRecords, exceptionRecords, borrowRecords } = useAppStore();
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -50,6 +50,7 @@ const TracePage = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [traceEvents, setTraceEvents] = useState<TraceEvent[]>([]);
   const [filterDate, setFilterDate] = useState<string | null>(null);
+  const [batchResult, setBatchResult] = useState<any>(null);
 
   const entryCards = [
     {
@@ -79,6 +80,13 @@ const TracePage = () => {
       title: '按日期查询',
       description: '选择日期范围',
       color: 'purple',
+    },
+    {
+      type: 'batch' as const,
+      icon: CheckCircle2,
+      title: '按批次查询',
+      description: '输入灭菌批次号',
+      color: 'warning',
     },
   ];
 
@@ -110,6 +118,7 @@ const TracePage = () => {
 
     let results: any[] = [];
     setFilterDate(queryType === 'date' ? searchValue : null);
+    setBatchResult(null);
 
     switch (queryType) {
       case 'pack':
@@ -169,6 +178,19 @@ const TracePage = () => {
         });
 
         results = instrumentPacks.filter((p) => datePackIds.has(p.id));
+        break;
+      }
+      case 'batch': {
+        const batch = sterilizationBatches.find((b) =>
+          b.batchNo.toLowerCase().includes(searchValue.toLowerCase())
+        );
+        if (batch) {
+          const batchPacks = instrumentPacks.filter((p) => batch.packIds.includes(p.id));
+          setBatchResult({
+            ...batch,
+            packs: batchPacks,
+          });
+        }
         break;
       }
     }
@@ -358,31 +380,16 @@ const TracePage = () => {
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [expandedPackId, setExpandedPackId] = useState<string | null>(null);
 
-  const getLatestOperator = (packId: string): { name: string; action: string; time: string } | null => {
-    const allEvents: { timestamp: string; operator: string; action: string }[] = [];
-
-    usageRecords
-      .filter((u) => u.packId === packId)
-      .forEach((u) => allEvents.push({ timestamp: u.usedAt, operator: u.operator, action: '开包使用' }));
-
-    cleaningRecords
-      .filter((c) => c.packId === packId)
-      .forEach((c) => allEvents.push({ timestamp: c.recoveredAt, operator: c.recoveredBy, action: '回收清洗' }));
-
-    sterilizationBatches
-      .filter((b) => b.packIds.includes(packId))
-      .forEach((b) => {
-        if (b.startedAt) allEvents.push({ timestamp: b.startedAt, operator: b.operator1 || '', action: '开始灭菌' });
-        if (b.releasedAt) allEvents.push({ timestamp: b.releasedAt, operator: b.operator2 || b.operator1 || '', action: '灭菌放行' });
-      });
-
-    exceptionRecords
-      .filter((e) => e.packId === packId)
-      .forEach((e) => allEvents.push({ timestamp: e.reportedAt, operator: e.reportedBy, action: '异常上报' }));
-
-    if (allEvents.length === 0) return null;
-    allEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    return { name: allEvents[0].operator, action: allEvents[0].action, time: allEvents[0].timestamp };
+  const getLatestOperator = (packId: string): { name: string; action: string; time: string; detail?: string } | null => {
+    const events = buildTraceChain(packId, null);
+    if (events.length === 0) return null;
+    const latest = events[0];
+    return {
+      name: latest.operator || '',
+      action: latest.title,
+      time: latest.timestamp,
+      detail: latest.description,
+    };
   };
 
   return (
@@ -453,7 +460,9 @@ const TracePage = () => {
                   placeholder={
                     queryType === 'pack'
                       ? '请输入器械包名称、编号或条码...'
-                      : '请输入患者姓名...'
+                      : queryType === 'batch'
+                        ? '请输入灭菌批次号...'
+                        : '请输入患者姓名...'
                   }
                   value={searchValue}
                   onChange={(e) => setSearchValue(e.target.value)}
@@ -469,6 +478,137 @@ const TracePage = () => {
               <Search size={20} />
               查询
             </button>
+          </div>
+        </div>
+      )}
+
+      {batchResult && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <h3 className="text-xl font-bold text-gray-900">{batchResult.batchNo}</h3>
+                  <StatusBadge type="sterilization" status={batchResult.status} />
+                </div>
+                <p className="text-sm text-gray-500">灭菌批次追溯</p>
+              </div>
+              <div className="text-right text-sm text-gray-500 space-y-1">
+                <p>开始时间：{batchResult.startedAt ? formatDateTime(batchResult.startedAt) : '-'}</p>
+                <p>放行时间：{batchResult.releasedAt ? formatDateTime(batchResult.releasedAt) : '-'}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-4 mb-4">
+              <div className="bg-primary-50 rounded-lg p-3">
+                <p className="text-xs text-primary-600 mb-1">器械包总数</p>
+                <p className="text-2xl font-bold text-primary-700">{batchResult.packs.length}</p>
+              </div>
+              <div className="bg-success-50 rounded-lg p-3">
+                <p className="text-xs text-success-600 mb-1">在库（灭菌合格）</p>
+                <p className="text-2xl font-bold text-success-700">
+                  {batchResult.packs.filter((p: any) => p.status === 'sterilized').length}
+                </p>
+              </div>
+              <div className="bg-warning-50 rounded-lg p-3">
+                <p className="text-xs text-warning-600 mb-1">使用中/借出</p>
+                <p className="text-2xl font-bold text-warning-700">
+                  {batchResult.packs.filter((p: any) => p.status === 'in_use' || p.status === 'borrowed').length}
+                </p>
+              </div>
+              <div className="bg-danger-50 rounded-lg p-3">
+                <p className="text-xs text-danger-600 mb-1">异常/处理中</p>
+                <p className="text-2xl font-bold text-danger-700">
+                  {batchResult.packs.filter((p: any) => p.status === 'exception' || p.status === 'cleaning' || p.status === 'sterilizing').length}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-4 text-sm">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-gray-500 text-xs mb-1">灭菌温度</p>
+                <p className="font-medium">{batchResult.temperature}°C</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-gray-500 text-xs mb-1">灭菌压力</p>
+                <p className="font-medium">{batchResult.pressure}kPa</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-gray-500 text-xs mb-1">灭菌时长</p>
+                <p className="font-medium">{batchResult.duration}s</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-gray-500 text-xs mb-1">操作人员</p>
+                <p className="font-medium">
+                  {[batchResult.operator1, batchResult.operator2].filter(Boolean).join(' / ') || '-'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
+              <p className="font-medium text-gray-900">
+                批次内器械包
+                <span className="text-gray-500 font-normal ml-2">共 {batchResult.packs.length} 个</span>
+              </p>
+            </div>
+
+            <div className="divide-y divide-gray-100">
+              {batchResult.packs.map((pack: any) => {
+                const latest = getLatestOperator(pack.id);
+                const hasUsage = usageRecords.some(u => u.packId === pack.id);
+                const hasBorrow = borrowRecords.some(b => b.packId === pack.id && !b.returnedAt);
+                return (
+                  <div key={pack.id} className="px-5 py-4 hover:bg-gray-50 transition-colors flex items-center gap-4">
+                    <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center">
+                      <Package size={24} className="text-primary-600" />
+                    </div>
+                    <div className="flex-1 cursor-pointer" onClick={() => viewTraceDetail(pack.id)}>
+                      <div className="flex items-center gap-3 mb-1">
+                        <p className="font-semibold text-gray-900">{pack.name}</p>
+                        <StatusBadge type="instrument" status={pack.status} />
+                        {hasUsage && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">已使用</span>}
+                        {hasBorrow && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">借出中</span>}
+                      </div>
+                      <p className="text-sm text-gray-500">
+                        {pack.code} · {pack.type}
+                      </p>
+                      {latest && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          最近操作：{latest.action} · {latest.name} · {formatDateTime(latest.time)}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      {pack.sterilizedAt && (
+                        <p className="text-sm text-gray-500">
+                          灭菌: {formatDateTime(pack.sterilizedAt)}
+                        </p>
+                      )}
+                      {pack.expiresAt && (
+                        <p
+                          className={`text-sm font-medium ${
+                            new Date(pack.expiresAt) < new Date()
+                              ? 'text-danger-600'
+                              : 'text-success-600'
+                          }`}
+                        >
+                          有效期: {formatDateTime(pack.expiresAt)}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => viewTraceDetail(pack.id)}
+                      className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg"
+                      title="查看时间轴"
+                    >
+                      <Clock size={18} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

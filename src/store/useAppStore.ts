@@ -285,15 +285,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     const batch = get().sterilizationBatches.find((b) => b.id === batchId);
     if (!batch) return;
 
+    const existingBatchException = get().exceptionRecords.find(
+      (e) => e.batchId === batchId && !e.packId && e.type === 'unqualified'
+    );
+    if (existingBatchException) return;
+
     const now = new Date().toISOString();
     const newExceptionRecords = [...get().exceptionRecords];
 
+    newExceptionRecords.push({
+      id: generateId(),
+      batchId,
+      type: 'unqualified' as const,
+      description: `批次 ${batch.batchNo} 被召回，需重新处理`,
+      reportedBy: operator,
+      reportedAt: now,
+      status: 'pending',
+    });
+
     batch.packIds.forEach((packId) => {
+      const hasPendingException = newExceptionRecords.some(
+        (e) => e.packId === packId && e.batchId === batchId && e.status === 'pending'
+      );
+      if (hasPendingException) return;
+
       newExceptionRecords.push({
         id: generateId(),
         packId,
         batchId,
-        type: 'unqualified',
+        type: 'unqualified' as const,
         description: `批次 ${batch.batchNo} 被召回，需重新处理`,
         reportedBy: operator,
         reportedAt: now,

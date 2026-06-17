@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Droplets, Clock, User, Stethoscope, Thermometer, Timer, Beaker, CheckCircle2, Plus, Search, Printer } from 'lucide-react';
+import { Droplets, Clock, User, Stethoscope, Thermometer, Timer, Beaker, CheckCircle2, Plus, Search, Printer, Download } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import StatusBadge from '@/components/StatusBadge';
 import Modal from '@/components/Modal';
@@ -96,19 +96,13 @@ const CleaningPage = () => {
     setIsEditingParams(false);
   };
 
-  const handlePrint = () => {
-    if (!currentRecord || !currentPack) return;
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('请允许弹出窗口以进行打印');
-      return;
-    }
+  const generatePrintHtml = () => {
+    if (!currentRecord || !currentPack) return '';
 
     const stepsCompleted = currentRecord.steps.filter(s => s.completed).length;
     const stepsTotal = currentRecord.steps.length;
 
-    const htmlContent = `
+    return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -207,6 +201,17 @@ const CleaningPage = () => {
 </body>
 </html>
     `;
+  };
+
+  const handlePrint = () => {
+    const htmlContent = generatePrintHtml();
+    if (!htmlContent) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('请允许弹出窗口以进行打印');
+      return;
+    }
 
     printWindow.document.write(htmlContent);
     printWindow.document.close();
@@ -214,6 +219,22 @@ const CleaningPage = () => {
     setTimeout(() => {
       printWindow.print();
     }, 250);
+  };
+
+  const handleDownload = () => {
+    const htmlContent = generatePrintHtml();
+    if (!htmlContent || !currentRecord || !currentPack) return;
+
+    const blob = new Blob([htmlContent], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateStr = formatDateTime(currentRecord.recoveredAt).replace(/[\/\s:]/g, '').slice(0, 14);
+    a.download = `清洗消毒登记单_${currentPack.code}_${dateStr}.doc`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const currentRecord = selectedRecord ? cleaningRecords.find((r) => r.id === selectedRecord) : null;
@@ -466,6 +487,13 @@ const CleaningPage = () => {
         size="lg"
         footer={
           <>
+            <button
+              onClick={handleDownload}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center gap-2"
+            >
+              <Download size={16} />
+              下载登记单
+            </button>
             <button
               onClick={handlePrint}
               className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"

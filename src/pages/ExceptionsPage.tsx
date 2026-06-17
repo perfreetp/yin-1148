@@ -536,98 +536,163 @@ const ExceptionsPage = () => {
 
             {selectedException.batchId && (
               <>
-                <div className="bg-warning-50 border border-warning-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="text-sm text-warning-700 mb-1">关联灭菌批次</p>
-                      <p className="font-semibold text-warning-900">
-                        {
-                          sterilizationBatches.find(b => b.id === selectedException.batchId)?.batchNo || '-'
-                        }
-                      </p>
-                    </div>
-                    <div className="text-sm text-warning-700">
-                      含 {
-                        sterilizationBatches.find(b => b.id === selectedException.batchId)?.packIds.length || 0
-                      } 个器械包
-                    </div>
-                  </div>
-                  <button
-                    onClick={openRecallModal}
-                    className="w-full py-2.5 bg-danger-600 text-white rounded-lg hover:bg-danger-700 transition-colors font-medium text-sm flex items-center justify-center gap-2"
-                  >
-                    <AlertTriangle size={16} />
-                    一键召回整批次
-                  </button>
-                </div>
+                {(() => {
+                  const batch = sterilizationBatches.find(b => b.id === selectedException.batchId);
+                  const totalCount = batch?.packIds.length || 0;
+                  const batchPacks = batch ? instrumentPacks.filter(p => batch.packIds.includes(p.id)) : [];
+                  const isRecalled = exceptionRecords.some(
+                    e => e.batchId === selectedException.batchId && !e.packId && e.type === 'unqualified'
+                  );
+                  const recallException = exceptionRecords.find(
+                    e => e.batchId === selectedException.batchId && !e.packId && e.type === 'unqualified'
+                  );
 
-                <div>
-                  <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <AlertTriangle size={16} className="text-warning-500" />
-                    受影响器械包（院感排查范围）
-                  </h4>
-                  <div className="border border-gray-200 rounded-xl overflow-hidden">
-                    <div className="grid grid-cols-5 gap-2 px-3 py-2 bg-gray-100 text-xs font-medium text-gray-600">
-                      <div>器械包</div>
-                      <div>当前环节</div>
-                      <div>状态</div>
-                      <div className="col-span-2 text-right">操作</div>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
-                      {(() => {
-                        const batch = sterilizationBatches.find(b => b.id === selectedException.batchId);
-                        const affectedPacks = batch ? instrumentPacks.filter(p => batch.packIds.includes(p.id)) : [];
-                        if (affectedPacks.length === 0) {
-                          return (
-                            <div className="py-6 text-center text-gray-400 text-sm col-span-5">暂无器械包</div>
-                          );
-                        }
-                        return affectedPacks.map(pack => (
-                          <div
-                            key={pack.id}
-                            className="grid grid-cols-5 gap-2 items-center px-3 py-3 hover:bg-gray-50 transition-colors"
+                  const pendingCount = batchPacks.filter(p => p.status === 'exception').length;
+                  const cleaningCount = batchPacks.filter(p => p.status === 'cleaning').length;
+                  const sterilizingCount = batchPacks.filter(p => p.status === 'sterilizing').length;
+                  const sterilizedCount = batchPacks.filter(p => p.status === 'sterilized').length;
+                  const otherCount = totalCount - pendingCount - cleaningCount - sterilizingCount - sterilizedCount;
+
+                  return (
+                    <>
+                      <div className="bg-warning-50 border border-warning-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-sm text-warning-700 mb-1">关联灭菌批次</p>
+                            <p className="font-semibold text-warning-900">
+                              {batch?.batchNo || '-'}
+                            </p>
+                          </div>
+                          <div className="text-sm text-warning-700">
+                            含 {totalCount} 个器械包
+                          </div>
+                        </div>
+                        {!isRecalled ? (
+                          <button
+                            onClick={openRecallModal}
+                            className="w-full py-2.5 bg-danger-600 text-white rounded-lg hover:bg-danger-700 transition-colors font-medium text-sm flex items-center justify-center gap-2"
                           >
-                            <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 bg-primary-50 rounded-lg flex items-center justify-center">
-                                <Package size={14} className="text-primary-600" />
-                              </div>
-                              <div>
-                                <p className="font-medium text-gray-900 text-sm">{pack.name}</p>
-                                <p className="text-xs text-gray-500">{pack.code}</p>
-                              </div>
-                            </div>
-                            <div className="text-sm text-gray-700">{getStatusText(pack.status)}</div>
-                            <div>
-                              <StatusBadge type="instrument" status={pack.status} />
-                            </div>
-                            <div className="col-span-2 flex justify-end gap-1">
-                              <button
-                                onClick={() => openReSterilizeModal(pack.id)}
-                                className="px-2.5 py-1.5 text-xs bg-primary-50 text-primary-600 hover:bg-primary-100 rounded-md transition-colors"
-                                title="创建新批次重新灭菌"
-                              >
-                                重新灭菌
-                              </button>
-                              <button
-                                onClick={() => {
-                                  navigate('/trace');
-                                  setTimeout(() => {
-                                    const ev = new CustomEvent('trace-pack', { detail: pack.code });
-                                    window.dispatchEvent(ev);
-                                  }, 100);
-                                }}
-                                className="p-1.5 text-primary-600 hover:bg-primary-50 rounded-lg"
-                                title="查看追溯链路"
-                              >
-                                <ExternalLink size={16} />
-                              </button>
+                            <AlertTriangle size={16} />
+                            一键召回整批次
+                          </button>
+                        ) : (
+                          <div className="bg-white rounded-lg p-3 border border-warning-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm text-gray-700 flex items-center gap-1">
+                                <AlertTriangle size={14} className="text-warning-500" />
+                                已召回
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {recallException?.reportedBy} · {recallException?.reportedAt ? formatDateTime(recallException.reportedAt) : ''}
+                              </span>
                             </div>
                           </div>
-                        ));
-                      })()}
-                    </div>
-                  </div>
-                </div>
+                        )}
+                      </div>
+
+                      {isRecalled && (
+                        <div className="bg-white border border-gray-200 rounded-xl p-4">
+                          <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <CheckCircle2 size={16} className="text-primary-500" />
+                            处置进度
+                          </h4>
+
+                          <div className="grid grid-cols-4 gap-3 mb-3">
+                            <div className="bg-danger-50 rounded-lg p-3 text-center">
+                              <p className="text-xl font-bold text-danger-600">{pendingCount}</p>
+                              <p className="text-xs text-danger-500">待重新清洗</p>
+                            </div>
+                            <div className="bg-warning-50 rounded-lg p-3 text-center">
+                              <p className="text-xl font-bold text-warning-600">{cleaningCount}</p>
+                              <p className="text-xs text-warning-500">清洗中</p>
+                            </div>
+                            <div className="bg-blue-50 rounded-lg p-3 text-center">
+                              <p className="text-xl font-bold text-blue-600">{sterilizingCount}</p>
+                              <p className="text-xs text-blue-500">灭菌中</p>
+                            </div>
+                            <div className="bg-success-50 rounded-lg p-3 text-center">
+                              <p className="text-xl font-bold text-success-600">{sterilizedCount}</p>
+                              <p className="text-xs text-success-500">已重新放行</p>
+                            </div>
+                          </div>
+
+                          <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="bg-gradient-to-r from-danger-500 via-warning-500 to-success-500 h-2 rounded-full transition-all"
+                              style={{ width: `${totalCount > 0 ? (sterilizedCount / totalCount) * 100 : 0}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-gray-500 mt-2 text-right">
+                            整体完成度：{totalCount > 0 ? Math.round((sterilizedCount / totalCount) * 100) : 0}%
+                          </p>
+                        </div>
+                      )}
+
+                      <div>
+                        <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                          <AlertTriangle size={16} className="text-warning-500" />
+                          受影响器械包（院感排查范围）
+                        </h4>
+                        <div className="border border-gray-200 rounded-xl overflow-hidden">
+                          <div className="grid grid-cols-5 gap-2 px-3 py-2 bg-gray-100 text-xs font-medium text-gray-600">
+                            <div>器械包</div>
+                            <div>当前环节</div>
+                            <div>状态</div>
+                            <div className="col-span-2 text-right">操作</div>
+                          </div>
+                          <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+                            {batchPacks.length === 0 ? (
+                              <div className="py-6 text-center text-gray-400 text-sm col-span-5">暂无器械包</div>
+                            ) : (
+                              batchPacks.map(pack => (
+                                <div
+                                  key={pack.id}
+                                  className="grid grid-cols-5 gap-2 items-center px-3 py-3 hover:bg-gray-50 transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-7 h-7 bg-primary-50 rounded-lg flex items-center justify-center">
+                                      <Package size={14} className="text-primary-600" />
+                                    </div>
+                                    <div>
+                                      <p className="font-medium text-gray-900 text-sm">{pack.name}</p>
+                                      <p className="text-xs text-gray-500">{pack.code}</p>
+                                    </div>
+                                  </div>
+                                  <div className="text-sm text-gray-700">{getStatusText(pack.status)}</div>
+                                  <div>
+                                    <StatusBadge type="instrument" status={pack.status} />
+                                  </div>
+                                  <div className="col-span-2 flex justify-end gap-1">
+                                    <button
+                                      onClick={() => openReSterilizeModal(pack.id)}
+                                      className="px-2.5 py-1.5 text-xs bg-primary-50 text-primary-600 hover:bg-primary-100 rounded-md transition-colors"
+                                      title="创建新批次重新灭菌"
+                                    >
+                                      重新灭菌
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        navigate('/trace');
+                                        setTimeout(() => {
+                                          const ev = new CustomEvent('trace-pack', { detail: pack.code });
+                                          window.dispatchEvent(ev);
+                                        }, 100);
+                                      }}
+                                      className="p-1.5 text-primary-600 hover:bg-primary-50 rounded-lg"
+                                      title="查看追溯链路"
+                                    >
+                                      <ExternalLink size={16} />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </>
             )}
 
